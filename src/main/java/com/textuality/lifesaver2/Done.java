@@ -43,11 +43,11 @@ public class Done extends Activity {
 
         readout.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
         readout.setBackgroundColor(0xff000000);
-        readout.loadDataWithBaseURL(LifeSaver.PERSIST_APP_HREF, 
-                "<html><head>" + Saver.mHead + "</head><body><p>" +
+        readout.loadData(
+            "<html><head>" + Saver.mHead + "</head><body><p>" +
                         result +
-                        "</p></body></html>", 
-                        "text/html", "utf-8", null);
+                        "</p></body></html>",
+                        "text/html", "utf-8");
 
         fixSmsForKitKat();
     }

@@ -4,7 +4,7 @@
     android:versionCode="7"
     android:versionName="2.3" >
 
-    <uses-sdk android:minSdkVersion="8" android:targetSdkVersion="19" />
+    <uses-sdk android:minSdkVersion="8" android:targetSdkVersion="22" />
 
     <uses-feature android:name="android.hardware.telephony" />
     
@@ -13,16 +13,8 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.WRITE_SMS" />
-    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
-    <uses-permission android:name="android.permission.USE_CREDENTIALS" />
-    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
-    
-    <!--  Required for default SMS application in KitKat. 
-    <uses-permission android:name="android.permission.BROADCAST_SMS" />
-    <uses-permission android:name="android.permission.BROADCAST_WAP_PUSH" />
-    <uses-permission android:name="android.permission.SEND_RESPOND_VIA_MESSAGE" />-->
 
     <application
         android:icon="@drawable/lsicon"
@@ -64,15 +56,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".Catastrophe"
-            android:label="@string/app_name" >
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
 
         <service
             android:name=".UploadService"
@@ -106,7 +89,7 @@
         </receiver>
 
         <!-- Activity that allows the user to send new SMS/MMS messages -->
-        <activity android:name=".ComposeSmsActivity">
+        <activity android:name=".DummyActivity">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />                
                 <action android:name="android.intent.action.SENDTO" />
@@ -120,7 +103,7 @@
         </activity>
 
         <!-- Service that delivers messages from the phone "quick response" -->
-        <service android:name=".HeadlessSmsSendService"
+        <service android:name=".DummyActivity"
                  android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE"
                  android:exported="true" >
             <intent-filter>
@@ -131,7 +114,10 @@
                 <data android:scheme="mms" />
                 <data android:scheme="mmsto" />
             </intent-filter>
-        </service>        
+        </service>
+
+        <meta-data android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
  	</application>
 
 </manifest>

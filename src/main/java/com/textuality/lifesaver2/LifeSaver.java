@@ -16,17 +16,16 @@
 
 package com.textuality.lifesaver2;
 
-import java.net.MalformedURLException;
-import java.net.URL;
-
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Telephony.Sms;
+import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.Window;
@@ -40,17 +39,26 @@ import android.webkit.WebView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-public class LifeSaver extends Activity {
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesUtil;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.drive.Drive;
+
+public class LifeSaver extends Activity implements GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks {
+    private static final int REQUEST_DRIVE_RESOLUTION = 9000;
+    public static final String BACKUP_FILE_PREFIX = "LifeSaver-";
+    public static final String BACKUP_FILE_EXTENSION = ".json";
+    public static final String CALLS_KIND = "Calls";
+    public static final String MESSAGES_KIND = "Messages";
+
     private TextView mSaveText, mRestoreText;
     private ImageView mSaveBuoy, mRestoreBuoy;
     private final static long DURATION = 1000L;
     private Intent mNextStep;
+    private GoogleApiClient mGoogleApiClient;
     public static String mDefaultSmsApp;
 
     public static final String TAG = "LIFESAVER2";
-    public static final String PERSIST_APP_HREF = "https://android-lifesaver.appspot.com/";
-    //public static final String PERSIST_APP_HREF = "http://192.168.1.108:8080/";
-    public static URL PERSIST_APP;
 
     @Override
     public void onCreate(Bundle mumble) {
@@ -77,24 +85,14 @@ public class LifeSaver extends Activity {
             }
         });
 
-        try {
-            PERSIST_APP = new URL(PERSIST_APP_HREF);
-        } catch (MalformedURLException e) {
-            throw new RuntimeException(e);
-        }
-
-        WebView seeRandP = (WebView) findViewById(R.id.mainSeeRandP);
-        seeRandP.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
-        seeRandP.setBackgroundColor(0xff000000); 
-        seeRandP.loadDataWithBaseURL(LifeSaver.PERSIST_APP_HREF, 
-                "<html><head><style> " +
-                        "p { color: white; background: black; font-size: 120%;} " +
-                        "a { text-decoration: none; font-weight: bold; color: #f88; }" +
-                        "</style></head><body>" +
-                        "<p><em>Important!</em> See <a href='http://android-lifesaver.appspot.com/retention-and-privacy.html'>Retention "+
-                        "and Privacy</a> before using!</p>" +
-                        "</body></html>" , 
-                        "text/html", "utf-8", null);
+        // Force the user to connect to Google Drive successfully before proceeding.
+        mGoogleApiClient = new GoogleApiClient.Builder(getApplicationContext())
+                .addApi(Drive.API)
+                .addScope(Drive.SCOPE_FILE)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .build();
+        mGoogleApiClient.connect();
 
         fixSmsForKitKat();
     }
@@ -198,5 +196,52 @@ public class LifeSaver extends Activity {
     public static Intent comeBack(Context context) {
         Intent intent = new Intent(context, LifeSaver.class);
         return intent;
+    }
+
+    public static String getBackupFileName(String key) {
+        return BACKUP_FILE_PREFIX + key + BACKUP_FILE_EXTENSION;
+    }
+
+    public static GoogleApiClient newGoogleApiClient(final Context context, final Activity activity) {
+        GoogleApiClient googleApiClient = new GoogleApiClient.Builder(context)
+                .addApi(Drive.API)
+                .addScope(Drive.SCOPE_APPFOLDER)
+                .build();
+        googleApiClient.blockingConnect();
+        return googleApiClient;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_DRIVE_RESOLUTION && resultCode == RESULT_OK) {
+            // Resolved, try connecting to Drive again.
+            mGoogleApiClient.connect();
+        }
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        Log.e(TAG, "Error connecting to Google Drive API: " + connectionResult.toString());
+        if (!connectionResult.hasResolution()) {
+            GooglePlayServicesUtil.getErrorDialog(connectionResult.getErrorCode(), this, 0).show();
+            return;
+        }
+
+        try {
+            connectionResult.startResolutionForResult(this, REQUEST_DRIVE_RESOLUTION);
+        } catch (IntentSender.SendIntentException e) {
+            Log.e(TAG, "Error resolving Google Drive connection error.");
+        }
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+        Log.i(TAG, "Connected to Google Drive API; LifeSaver is ready.");
+        mGoogleApiClient.disconnect();
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
     }
 }

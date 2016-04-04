@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 
 // We need this to be a default SMS app on KitKat.
-public class ComposeSmsActivity extends Activity {
+public class DummyActivity extends Activity {
        public void onCreate(Bundle b) {
                super.onCreate(b);
        }

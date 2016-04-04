@@ -1,12 +1,5 @@
 package com.textuality.lifesaver2;
 
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -20,8 +13,29 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Telephony.Sms;
 
-import com.textuality.aerc.AppEngineClient;
-import com.textuality.aerc.Response;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.drive.Drive;
+import com.google.android.gms.drive.DriveApi;
+import com.google.android.gms.drive.DriveFile;
+import com.google.android.gms.drive.DriveFolder;
+import com.google.android.gms.drive.Metadata;
+import com.google.android.gms.drive.metadata.SortableMetadataField;
+import com.google.android.gms.drive.query.Filters;
+import com.google.android.gms.drive.query.Query;
+import com.google.android.gms.drive.query.SearchableField;
+import com.google.android.gms.drive.query.SortOrder;
+import com.google.android.gms.drive.query.SortableField;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @TargetApi(Build.VERSION_CODES.KITKAT)
 public class DownloadService extends IntentService {
@@ -45,9 +59,14 @@ public class DownloadService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
-        String authToken = intent.getStringExtra("authtoken");
         mNotifier = new Notifier(this);
         mNotifier.notifyRestore(getString(R.string.restoring), false);
+
+        GoogleApiClient googleApiClient = LifeSaver.newGoogleApiClient(getApplicationContext(), null);
+        if (!googleApiClient.isConnected()) {
+            error("Error connecting to Google Drive.");
+            return;
+        }
 
         // 1. set up
         Columns callColumns = ColumnsFactory.calls(this);
@@ -56,42 +75,30 @@ public class DownloadService extends IntentService {
         Map<String, Boolean> loggedCalls = Columns.loadKeys(this, Columns.callsProvider(), callColumns);
         Map<String, Boolean> loggedMessages = Columns.loadKeys(this, Columns.messagesProvider(), messageColumns);
 
-        URL callsURI, messagesURI;
-        try {
-            callsURI = new URL(LifeSaver.PERSIST_APP_HREF + "calls/");
-            messagesURI = new URL(LifeSaver.PERSIST_APP_HREF + "messages/");
-        } catch (MalformedURLException e) {
-            throw new RuntimeException(e);
-        }
-
         // 2. Fetch calls
-        AppEngineClient client = new AppEngineClient(LifeSaver.PERSIST_APP, authToken, this);
-        Response response = client.get(callsURI, MEDIA_TYPES_LIST);
-        if (response == null) {
-            error(client.errorMessage());
-        } else if ((response.status / 100) != 2) {
-            error(getString(R.string.download_failed) + response.status);
+        String callsBody = getDriveFile(googleApiClient, LifeSaver.CALLS_KIND);
+        if (callsBody == null) {
+            error("Error downloading calls backup file from Google Drive.");
+            return;
         }
 
         // 3. load calls we haven't already seen
-        Restored callsRestored = restore(response, loggedCalls, callColumns, Columns.callsProvider(), null, "calls");
+        Restored callsRestored = restore(callsBody, loggedCalls, callColumns, Columns.callsProvider(), null, LifeSaver.CALLS_KIND);
         mNotifier.notifyRestore(getString(R.string.restored) + callsRestored.stored + "/" + 
                 callsRestored.downloaded + 
                 getString(R.string.calls), false);
 
         // 4. Fetch messages
-        response = client.get(messagesURI, MEDIA_TYPES_LIST);
-        if (response == null) {
-            error(client.errorMessage());
-        }
-        else if ((response.status / 100) != 2) {
-            error(getString(R.string.download_failed) + response.status);
+        String messagesBody = getDriveFile(googleApiClient, LifeSaver.MESSAGES_KIND);
+        if (messagesBody == null) {
+            error("Error downloading messages backup file from Google Drive.");
+            return;
         }
 
         // 5. load messages we haven't already seen
         Uri messagesProvider = Columns.messagesProvider();
 
-        Restored messagesRestored = restore(response, loggedMessages, messageColumns, messagesProvider, "thread_id", "messages");
+        Restored messagesRestored = restore(messagesBody, loggedMessages, messageColumns, messagesProvider, "thread_id", LifeSaver.MESSAGES_KIND);
         mNotifier.notifyRestore(getString(R.string.restored) + callsRestored.stored + "/" + callsRestored.downloaded + 
                 getString(R.string.calls) + ", " +
                 messagesRestored.stored + "/" + messagesRestored.downloaded + 
@@ -126,17 +133,55 @@ public class DownloadService extends IntentService {
         stopSelf();
     }
 
-    private Restored restore(Response response, Map<String, Boolean> logged, Columns columns, 
+    private ByteArrayOutputStream readFully(InputStream inputStream)
+            throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        int length = 0;
+        while ((length = inputStream.read(buffer)) != -1) {
+          baos.write(buffer, 0, length);
+        }
+        return baos;
+    }
+
+    protected String getDriveFile(GoogleApiClient googleApiClient, String kind) {
+        DriveFolder root = Drive.DriveApi.getAppFolder(googleApiClient);
+        PendingResult<DriveApi.MetadataBufferResult> queryResult =
+                root.queryChildren(googleApiClient, new Query.Builder()
+                        .addFilter(Filters.eq(SearchableField.TITLE, LifeSaver.getBackupFileName(kind)))
+                        .setSortOrder(new SortOrder.Builder()
+                                .addSortDescending(SortableField.MODIFIED_DATE)
+                                .build())
+                    .build());
+        Metadata fileMetadata = queryResult.await().getMetadataBuffer().get(0);
+        DriveFile file = Drive.DriveApi.getFile(googleApiClient, fileMetadata.getDriveId());
+
+        DriveApi.DriveContentsResult fileContents = null;
+        try {
+            fileContents = file.open(googleApiClient, DriveFile.MODE_READ_ONLY, null).await();
+
+            InputStream stream = fileContents.getDriveContents().getInputStream();
+            try {
+                return readFully(stream).toString();
+            } catch (IOException e) {
+                return null;
+            }
+        }
+        finally {
+            fileContents.getDriveContents().discard(googleApiClient);
+        }
+    }
+
+    private Restored restore(String response, Map<String, Boolean> logged, Columns columns,
             Uri provider, String zeroField, String callsOrMessages) {
-        String body = new String(response.body);
         Restored restored = new Restored();
         ContentResolver cr = getContentResolver();
         try {  
-            JSONObject bodyJSON = new JSONObject(body);
+            JSONObject bodyJSON = new JSONObject(response);
             JSONArray toRestore = restored.toRestore = bodyJSON.getJSONArray(callsOrMessages);
+            restored.downloaded = toRestore.length();
 
             for (int i = 0; i < toRestore.length(); i++) {
-                restored.downloaded++;
                 JSONObject json = (JSONObject) toRestore.get(i);
                 String key = columns.jsonToKey(json);
                 if (logged.get(key) == null) {

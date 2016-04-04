@@ -27,8 +27,6 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebView;
 
-import com.textuality.aerc.Authenticator;
-
 public class Restorer extends Activity {
 
     private WebView mReadout;
@@ -43,65 +41,18 @@ public class Restorer extends Activity {
             WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.restore);
 
+        String page = "<html><head>" + mHead + "</head><body><p>" +
+                    Restorer.this.getString(R.string.restoration_in_progress) + " " +
+                    Restorer.this.getString(R.string.stand_by) +
+                    "</p></body></html>";
+
         mReadout = (WebView) findViewById(R.id.restoreData);
         mReadout.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
         mReadout.setBackgroundColor(0xff000000);
-        mReadout.loadDataWithBaseURL(LifeSaver.PERSIST_APP_HREF, 
-                "<html><head>" + mHead + "</head><body><p>" +
-                        Restorer.this.getString(R.string.preparing_restore) +
-                        "</p></body></html>", 
-                        "text/html", "utf-8", null);
-        
-        new PrepareDownload().execute();
-    }
+        mReadout.loadData(page, "text/html", "utf-8");
+        (new Notifier(Restorer.this)).notifyRestore(Restorer.this.getString(R.string.restoring), false);
 
-    class PrepareDownload extends AsyncTask<Void, Void, String> {
-
-        private Account mAccount;
-        private String mErrorMessage = null;
-
-        @Override
-        protected String doInBackground(Void... params) {
-            (new Notifier(Restorer.this)).notifyRestore(Restorer.this.getString(R.string.restoring), false);
-
-            Account[] accounts = AccountManager.get(Restorer.this).getAccountsByType("com.google");
-            if (accounts.length == 0) {
-                mErrorMessage = Restorer.this.getString(R.string.no_accounts);
-                return null;
-            }
-            mAccount = accounts[0];
-            Authenticator authent = Authenticator.appEngineAuthenticator(Restorer.this, mAccount, LifeSaver.PERSIST_APP);
- 
-            String authToken = authent.token();
-            if (authToken == null)  {
-                mErrorMessage = authent.errorMessage();
-                return null;
-            }
-            return authToken;
-        }
-
-        @Override
-        protected void onPostExecute(String authToken) {
-            String body;
-            if (authToken == null) {
-                body = "<p>" + Restorer.this.getString(R.string.ouch) + 
-                        "<b>" + mErrorMessage + "</b></p>";
-
-            } else {
-                body = "<p>" + 
-                        Restorer.this.getString(R.string.restoration_in_progress) + " " +
-                        Restorer.this.getString(R.string.stand_by) +
-                        "</p>";
-            }
-
-            String page = "<html><head>" + mHead + "</head><body>" + body + "</body></html>";
-            mReadout.loadDataWithBaseURL(LifeSaver.PERSIST_APP_HREF, page, "text/html", "utf-8", null);
-
-            if (authToken != null) {
-                Intent intent = new Intent(Restorer.this, DownloadService.class);
-                intent.putExtra("authtoken", authToken);
-                startService(intent);
-            }
-        }        
+        Intent intent = new Intent(Restorer.this, DownloadService.class);
+        startService(intent);
     }
 }
